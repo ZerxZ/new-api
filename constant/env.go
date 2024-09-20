@@ -32,7 +32,7 @@ var GeminiModelMap = map[string]string{
 	"gemini-ultra":              "v1beta",
 }
 
-// GeminiChatSafetySettingsArray 用于设置Gemini的安全性设置
+// GeminiChatSafetySettingsArray 用于设置Gemini的安全性设置 测试
 // https://ai.google.dev/api/generate-content#v1beta.HarmCategory
 var GeminiChatSafetySettingsMap map[string]string
 
