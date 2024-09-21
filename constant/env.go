@@ -32,11 +32,11 @@ var GeminiModelMap = map[string]string{
 	"gemini-ultra":              "v1beta",
 }
 
-// GeminiChatSafetySettingsArray 用于设置Gemini的安全性设置
+// GeminiChatSafetySettingsArray 用于设置Gemini的安全性设置 测试
 // https://ai.google.dev/api/generate-content#v1beta.HarmCategory
-var GeminiChatSafetySettingsMap map[string]string
+var GeminiChatSafetySettingsMap = map[string]string{}
 
-var GeminiExpChatSafetySettingsMap map[string]string
+var GeminiExpChatSafetySettingsMap = map[string]string{}
 
 // 是否生成初始令牌，默认关闭。
 var GenerateDefaultToken = common.GetEnvOrDefaultBool("GENERATE_DEFAULT_TOKEN", false)
@@ -105,7 +105,6 @@ func InitGeminiExpChatSafetySettings() {
 
 	constants := []string{
 		"HARM_CATEGORY_CIVIC_INTEGRITY",
-		"HARM_CATEGORY_VIOLENCE",
 	}
 
 	if geminiSafetySettingArrayStr != "" {

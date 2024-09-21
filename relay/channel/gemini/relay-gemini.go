@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"one-api/common"
+	"one-api/constant"
 	"one-api/dto"
 	relaycommon "one-api/relay/common"
 	"one-api/service"
@@ -15,47 +16,35 @@ import (
 )
 
 // Setting safety to the lowest possible values since Gemini is already powerless enough
-func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest, model string) *GeminiChatRequest {
+func ConvertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest) *GeminiChatRequest {
 	geminiRequest := GeminiChatRequest{
-		Contents: make([]GeminiChatContent, 0, len(textRequest.Messages)),
-		SafetySettings: []GeminiChatSafetySettings{
-			{
-				Category:  "HARM_CATEGORY_HARASSMENT",
-				Threshold: common.GeminiSafetySetting,
-			},
-			{
-				Category:  "HARM_CATEGORY_HATE_SPEECH",
-				Threshold: common.GeminiSafetySetting,
-			},
-			{
-				Category:  "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-				Threshold: common.GeminiSafetySetting,
-			},
-			{
-				Category:  "HARM_CATEGORY_DANGEROUS_CONTENT",
-				Threshold: common.GeminiSafetySetting,
-			},
-		},
+		Contents:       make([]GeminiChatContent, 0, len(textRequest.Messages)),
+		SafetySettings: make([]GeminiChatSafetySettings, 0, len(constant.GeminiChatSafetySettingsMap)),
 		GenerationConfig: GeminiChatGenerationConfig{
 			Temperature:     textRequest.Temperature,
 			TopP:            textRequest.TopP,
 			MaxOutputTokens: textRequest.MaxTokens,
 		},
 	}
+	for category, threshold := range constant.GeminiChatSafetySettingsMap {
+		geminiRequest.SafetySettings = append(geminiRequest.SafetySettings, GeminiChatSafetySettings{
+			Category:  category,
+			Threshold: threshold,
+		})
+	}
+	model := textRequest.Model
 
 	// 判断是否是exp模型，如果是则添加额外的SafetySettings
+
 	if strings.Contains(model, "exp") {
-		geminiRequest.SafetySettings = append(geminiRequest.SafetySettings,
-			GeminiChatSafetySettings{
-				Category:  "HARM_CATEGORY_CIVIC_INTEGRITY",
-				Threshold: common.GeminiSafetySetting,
-			},
-			GeminiChatSafetySettings{
-				Category:  "HARM_CATEGORY_VIOLENCE",
-				Threshold: common.GeminiSafetySetting,
-			},
-		)
+		for category, threshold := range constant.GeminiExpChatSafetySettingsMap {
+			geminiRequest.SafetySettings = append(geminiRequest.SafetySettings, GeminiChatSafetySettings{
+				Category:  category,
+				Threshold: threshold,
+			})
+		}
 	}
+
 	if textRequest.Tools != nil {
 		functions := make([]dto.FunctionCall, 0, len(textRequest.Tools))
 		for _, tool := range textRequest.Tools {
@@ -74,7 +63,9 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest, model string) *Ge
 		}
 	}
 	shouldAddDummyModelMessage := false
-	for _, message := range textRequest.Messages {
+	isFirstMessage := true
+	lastMessageIndex := len(textRequest.Messages) - 1
+	for index, message := range textRequest.Messages {
 		content := GeminiChatContent{
 			Role: message.Role,
 			Parts: []GeminiPart{
@@ -83,6 +74,7 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest, model string) *Ge
 				},
 			},
 		}
+
 		openaiContent := message.ParseContent()
 		var parts []GeminiPart
 		imageNum := 0
@@ -97,10 +89,11 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest, model string) *Ge
 				if imageNum > GeminiVisionMaxImageNum {
 					continue
 				}
+				imageUrl := part.ImageUrl.(dto.MessageImageUrl).Url
 				// 判断是否是url
-				if strings.HasPrefix(part.ImageUrl.(dto.MessageImageUrl).Url, "http") {
+				if strings.HasPrefix(imageUrl, "http") {
 					// 是url，获取图片的类型和base64编码的数据
-					mimeType, data, _ := service.GetImageFromUrl(part.ImageUrl.(dto.MessageImageUrl).Url)
+					mimeType, data, _ := service.GetImageFromUrl(imageUrl)
 					parts = append(parts, GeminiPart{
 						InlineData: &GeminiInlineData{
 							MimeType: mimeType,
@@ -108,7 +101,7 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest, model string) *Ge
 						},
 					})
 				} else {
-					_, format, base64String, err := service.DecodeBase64ImageData(part.ImageUrl.(dto.MessageImageUrl).Url)
+					_, format, base64String, err := service.DecodeBase64ImageData(imageUrl)
 					if err != nil {
 						continue
 					}
@@ -122,24 +115,18 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest, model string) *Ge
 			}
 		}
 		content.Parts = parts
-
+		//isFirstMessage := false
 		// 处理系统提示
 		if content.Role == "system" {
 			if isFirstMessage {
-				// 如果是第一条消息,设置为 SystemInstructions
-				geminiRequest.SystemInstructions = &GeminiChatContent{
-					Role: "system",
-					Parts: []GeminiPart{
-						{
-							Text: content.Parts[0].Text,
-						},
-					},
-				}
+				content.Role = "model"
+				isFirstMessage = false
 			} else {
 				// 如果不是第一条消息,将 system 角色转换为 user
 				content.Role = "user"
 				shouldAddDummyModelMessage = true // 如果系统提示不是第一条消息，则需要添加虚拟模型消息
 			}
+
 		}
 
 		// 处理助手角色
@@ -149,10 +136,9 @@ func CovertGemini2OpenAI(textRequest dto.GeneralOpenAIRequest, model string) *Ge
 		}
 
 		geminiRequest.Contents = append(geminiRequest.Contents, content)
-		isFirstMessage = false
 
-		// If a system message is the last message, we need to add a dummy model message to make gemini happys
-		if shouldAddDummyModelMessage && message == textRequest.Messages[len(textRequest.Messages)-1] {
+		// If a system message is the last message, we need to add a dummy model message to make gemini happy
+		if shouldAddDummyModelMessage && index == lastMessageIndex {
 			geminiRequest.Contents = append(geminiRequest.Contents, GeminiChatContent{
 				Role: "model",
 				Parts: []GeminiPart{
