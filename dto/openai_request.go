@@ -26,6 +26,7 @@ type GeneralOpenAIRequest struct {
 	FrequencyPenalty    float64        `json:"frequency_penalty,omitempty"`
 	PresencePenalty     float64        `json:"presence_penalty,omitempty"`
 	ResponseFormat      any            `json:"response_format,omitempty"`
+	EncodingFormat      any            `json:"encoding_format,omitempty"`
 	Seed                float64        `json:"seed,omitempty"`
 	Tools               []ToolCall     `json:"tools,omitempty"`
 	ToolChoice          any            `json:"tool_choice,omitempty"`
@@ -33,6 +34,8 @@ type GeneralOpenAIRequest struct {
 	LogProbs            bool           `json:"logprobs,omitempty"`
 	TopLogProbs         int            `json:"top_logprobs,omitempty"`
 	Dimensions          int            `json:"dimensions,omitempty"`
+	Modalities          any            `json:"modalities,omitempty"`
+	Audio               any            `json:"audio,omitempty"`
 }
 
 type OpenAITools struct {
@@ -82,9 +85,10 @@ type Message struct {
 }
 
 type MediaMessage struct {
-	Type     string `json:"type"`
-	Text     string `json:"text"`
-	ImageUrl any    `json:"image_url,omitempty"`
+	Type       string `json:"type"`
+	Text       string `json:"text"`
+	ImageUrl   any    `json:"image_url,omitempty"`
+	InputAudio any    `json:"input_audio,omitempty"`
 }
 
 type MessageImageUrl struct {
@@ -92,9 +96,15 @@ type MessageImageUrl struct {
 	Detail string `json:"detail"`
 }
 
+type MessageInputAudio struct {
+	Data   string `json:"data"` //base64
+	Format string `json:"format"`
+}
+
 const (
-	ContentTypeText     = "text"
-	ContentTypeImageURL = "image_url"
+	ContentTypeText       = "text"
+	ContentTypeImageURL   = "image_url"
+	ContentTypeInputAudio = "input_audio"
 )
 
 func (m Message) StringContent() string {
@@ -167,11 +177,19 @@ func (m Message) ParseContent() []MediaMessage {
 						},
 					})
 				}
-
+			case ContentTypeInputAudio:
+				if subObj, ok := contentMap["input_audio"].(map[string]any); ok {
+					contentList = append(contentList, MediaMessage{
+						Type: ContentTypeInputAudio,
+						InputAudio: MessageInputAudio{
+							Data:   subObj["data"].(string),
+							Format: subObj["format"].(string),
+						},
+					})
+				}
 			}
 		}
 		return contentList
 	}
-
 	return nil
 }
